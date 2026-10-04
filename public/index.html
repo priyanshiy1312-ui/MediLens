@@ -1,0 +1,58 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MediLens — See Healthcare More Clearly</title>
+<style>
+:root{--bg:#f6fafb;--card:#fff;--ink:#12303a;--mut:#5b7480;--ac:#0e8a8a;--line:#dbe7ea}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1b20;--card:#14282f;--ink:#e6f2f4;--mut:#93aab2;--ac:#3cc4c4;--line:#254049}}
+*{box-sizing:border-box}body{margin:0;font:16px system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+header{padding:20px;max-width:1000px;margin:auto}h1{margin:0;color:var(--ac)}.tag{color:var(--mut)}
+main{max-width:1000px;margin:auto;padding:0 20px 80px}
+form{display:flex;gap:8px;flex-wrap:wrap}input{flex:1;min-width:200px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink)}
+button{padding:10px 16px;border:0;border-radius:10px;background:var(--ac);color:#fff;cursor:pointer;font-weight:600}button.s{background:transparent;color:var(--ac);border:1px solid var(--ac)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px;margin-top:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}.card h3{margin:0 0 6px}
+.m{color:var(--mut);font-size:14px;margin:3px 0}.bar{height:8px;background:var(--line);border-radius:5px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ac)}
+.note{font-size:13px;color:var(--mut);border-left:3px solid var(--ac);padding-left:10px;margin:14px 0}
+table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid var(--line);text-align:left;font-size:14px}
+.err{color:#c0392b}.sk{height:120px;background:linear-gradient(90deg,var(--line),var(--card),var(--line));border-radius:14px;animation:p 1.2s infinite}@keyframes p{50%{opacity:.5}}
+</style></head><body>
+<header><h1>MediLens</h1><div class="tag">See Healthcare More Clearly.</div></header>
+<main>
+<form id="f" role="search"><input id="q" aria-label="Healthcare search" value="Cardiology hospitals in Jaipur"><input id="loc" aria-label="Location" placeholder="Location (optional)" style="max-width:180px">
+<button>Search Healthcare</button><button type="button" class="s" id="geo">Use my location</button></form>
+<p class="note">MediLens is an informational comparison tool using public search and review data via SerpApi. It is not medical advice, a diagnosis, or an official quality rating. Consult a qualified professional.</p>
+<div id="status" role="status"></div><div id="out" class="grid"></div>
+<div id="cmpbar" style="margin-top:14px"></div><div id="detail"></div><div id="cmp"></div>
+</main>
+<script>
+const $=s=>document.querySelector(s);let results=[],picked=new Map(),coords=null,lastQ='';
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const api=async(u,o)=>{const r=await fetch(u,o);const j=await r.json();if(!r.ok)throw Error(j.error||'Request failed');return j};
+$('#geo').onclick=()=>navigator.geolocation?.getCurrentPosition(p=>{coords={lat:p.coords.latitude,lng:p.coords.longitude};$('#status').textContent='Using your location for this session only (not stored).'},()=>$('#status').textContent='Location permission denied.');
+$('#f').onsubmit=async e=>{e.preventDefault();lastQ=$('#q').value.trim();if(!lastQ)return;
+ $('#out').innerHTML='<div class="sk"></div>'.repeat(3);$('#detail').innerHTML=$('#cmp').innerHTML='';
+ const p=new URLSearchParams({q:lastQ});if($('#loc').value)p.set('location',$('#loc').value);if(coords){p.set('lat',coords.lat);p.set('lng',coords.lng)}
+ try{const d=await api('/api/search?'+p);results=d.providers;$('#status').textContent=results.length?`${results.length} results · source: ${d.source}${d.cached?' (cached)':''}`:'No healthcare providers found.';
+  $('#out').innerHTML=results.map((r,i)=>`<article class="card"><h3>${esc(r.name)}</h3>
+  <div class="m">${r.rating!=null?'⭐ '+r.rating:'No rating'} ${r.reviews!=null?'· '+r.reviews+' reviews':''}</div>
+  ${r.address?`<div class="m">📍 ${esc(r.address)}</div>`:''}${r.phone?`<div class="m">📞 ${esc(r.phone)}</div>`:''}${r.openState?`<div class="m">${esc(r.openState)}</div>`:''}
+  ${r.website?`<div class="m"><a href="${esc(r.website)}" rel="noopener" target="_blank">Website</a></div>`:''}
+  <div class="m"><b>MediLens Score: ${r.medilens.score??'n/a'}</b></div>
+  <button onclick="detail(${i})">View Details</button> <button class="s" onclick="pick(${i})">Compare</button></article>`).join('')}
+ catch(err){$('#out').innerHTML='';$('#status').innerHTML=`<span class="err">${esc(err.message)}</span>`}};
+function pick(i){const r=results[i];picked.has(r.id)?picked.delete(r.id):picked.size<4&&picked.set(r.id,r);
+ $('#cmpbar').innerHTML=`Selected: ${[...picked.values()].map(x=>esc(x.name)).join(', ')||'none'} <button ${picked.size<2?'disabled':''} onclick="compare()">Compare (${picked.size})</button>`}
+const factors=m=>`<table><tr><th>Factor</th><th>Weight</th><th>Evidence</th></tr>${m.factors.map(f=>`<tr><td>${f.name}</td><td>${f.weight}%</td><td>${f.evidence?esc(f.evidence):'No data (excluded)'}</td></tr>`).join('')}</table>`;
+async function detail(i){const r=results[i];$('#detail').innerHTML=`<div class="card"><h2>${esc(r.name)}</h2><p>Loading review insights…</p></div>`;
+ try{const d=await api('/api/insights',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataId:r.dataId,query:lastQ,provider:r})});
+ $('#detail').innerHTML=`<div class="card"><h2>${esc(r.name)}</h2><div class="m">${esc(r.address||'')}</div><h3>Patient Review Insights</h3>`+
+ (d.enough?d.themes.map(t=>`<div class="m">${t.theme}: <b>${t.sentiment||'—'}</b> ${t.sentiment?`(${t.mentions} mentions)`:'— '+t.note}</div><div class="bar"><i style="width:${t.avgRating?t.avgRating*20:0}%"></i></div>`).join('')+`<p class="note">${esc(d.disclaimer)} (${d.reviewsAnalysed} reviews analysed)</p><h3>Why this score? ${d.medilens.score}/100</h3>${factors(d.medilens)}`:`<p>${d.message} (${d.reviewsAnalysed} reviews found)</p>`)+
+ `<h3>Search inside reviews</h3><input id="rq" placeholder="e.g. waiting time"><button onclick="rs('${esc(r.dataId)}')">Search</button><div id="rr"></div></div>`}
+ catch(e){$('#detail').innerHTML=`<div class="card err">${esc(e.message)}</div>`}}
+async function rs(id){const q=$('#rq').value;try{const d=await api(`/api/providers/${encodeURIComponent(id)}/reviews?q=${encodeURIComponent(q)}`);
+ $('#rr').innerHTML=d.matches?.length?d.matches.map(m=>`<blockquote class="m">“${esc(m.snippet)}” — ${m.rating??'?'}★</blockquote>`).join(''):'<p>Not enough review evidence found.</p>'}catch(e){$('#rr').innerHTML=`<span class="err">${esc(e.message)}</span>`}}
+async function compare(){$('#cmp').innerHTML='<div class="sk"></div>';try{const d=await api('/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({providers:[...picked.values()],query:lastQ})});
+ const row=(n,f)=>`<tr><th>${n}</th>${d.providers.map(p=>`<td>${f(p)}</td>`).join('')}</tr>`;
+ $('#cmp').innerHTML=`<div class="card" style="overflow:auto"><h2>Compare healthcare options</h2><table><tr><th></th>${d.providers.map(p=>`<th>${esc(p.name)}</th>`).join('')}</tr>`+
+ row('Rating',p=>p.rating??'—')+row('Reviews',p=>p.reviews??'—')+row('Open status',p=>esc(p.openState||'—'))+row('Avg review rating (sample)',p=>p.sentiment??'Not enough evidence')+row('MediLens Score',p=>`<b>${p.medilens.score??'—'}</b><div class="bar"><i style="width:${p.medilens.score||0}%"></i></div>`)+`</table><p class="note">MediLens Score: 30% rating, 20% review volume, 20% review sentiment, 15% query relevance, 15% listed availability info. Missing signals are excluded and weights renormalised. Informational only.</p></div>`}
+ catch(e){$('#cmp').innerHTML=`<div class="card err">${esc(e.message)}</div>`}}
+</script></body></html>
